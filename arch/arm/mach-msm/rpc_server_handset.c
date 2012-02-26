@@ -627,7 +627,7 @@ static int __devinit hs_rpc_init(void)
 	}
 	}
 	rc = msm_rpc_create_server(&hs_rpc_server);
-	if (rc < 0)
+	if (rc)
 		pr_err("%s: failed to create rpc server\n", __func__);
 
 	return rc;
