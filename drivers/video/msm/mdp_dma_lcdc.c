@@ -279,6 +279,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 		active_v_end = 0;
 	}
 
+
 #ifdef CONFIG_FB_MSM_MDP40
 	if (mfd->panel.type == HDMI_PANEL) {
 		block = MDP_DMA_E_BLOCK;
@@ -291,14 +292,14 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	}
 
 	lcdc_underflow_clr |= 0x80000000;	/* enable recovery */
+#else
+	hsync_polarity = 0;
+	vsync_polarity = 0;
+#endif
 	data_en_polarity = 0;
 
 	ctrl_polarity =
 	    (data_en_polarity << 2) | (vsync_polarity << 1) | (hsync_polarity);
-#else
-	ctrl_polarity = lcdc_polarity_set();
-
-#endif
 
 	MDP_OUTP(MDP_BASE + timer_base + 0x4, hsync_ctrl);
 	MDP_OUTP(MDP_BASE + timer_base + 0x8, vsync_period);

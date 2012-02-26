@@ -21,7 +21,6 @@
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/bootmem.h>
-#include <linux/usb/mass_storage_function.h>
 #include <linux/power_supply.h>
 
 
@@ -49,7 +48,7 @@
 #include <mach/memory.h>
 #include <mach/msm_battery.h>
 #include <mach/rpc_server_handset.h>
-
+#include <mach/msm_tsif.h>
 
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
@@ -57,7 +56,6 @@
 #include <linux/android_pmem.h>
 #include <mach/camera.h>
 #include <linux/skbuff.h>
-
 
 #include "devices.h"
 #include "socinfo.h"
@@ -86,6 +84,11 @@
 #ifdef CONFIG_ARCH_MSM7X27
 #include <linux/msm_kgsl.h>
 #endif
+
+#ifdef CONFIG_USB_ANDROID
+#include <linux/usb/android.h>
+#endif
+
 #ifdef HUAWEI_BCM4329
 #ifdef CONFIG_HUAWEI_WIFI_SDCC
 #include <linux/wifi_tiwlan.h>
@@ -138,11 +141,11 @@ static unsigned int ts_id = 0;
 static unsigned int sub_board_id = 0;
 
 #ifdef CONFIG_ARCH_MSM7X25
-
 #define MSM_PMEM_MDP_SIZE	0xb21000
-
 #define MSM_PMEM_ADSP_SIZE	0xc00000
-
+#define MSM_PMEM_AUDIO_SIZE	0x121000
+#define MSM_FB_SIZE		0x100000
+#define PMEM_KERNEL_EBI1_SIZE	0x80000
 /*now crash dump is used for SMEM log to catch sleep log of ARM9 side*/
 #ifdef CONFIG_HUAWEI_CRASH_DUMP
 #define HUAWEI_CRASH_MEM_SIZE   (600*1024) //600K size
@@ -150,11 +153,6 @@ static unsigned int sub_board_id = 0;
 #define HUAWEI_SMEM_SLEEP_LOG_SIZE   (600*1024) //600K size
 #endif
 #define HUAWEI_SHARE_MEMORY_SIZE (424*1024) //424K
-
-//#define MSM_FB_SIZE		0x200000
-#define MSM_FB_SIZE		0x100000
-#define PMEM_KERNEL_EBI1_SIZE	0x80000
-#define MSM_PMEM_AUDIO_SIZE	0x121000
 #endif
 
 /* Using upper 1/2MB of Apps Bootloader memory*/
@@ -350,6 +348,19 @@ static struct usb_composition usb_func_composition[] = {
 	},
 #endif
 };
+static struct usb_mass_storage_platform_data mass_storage_pdata = {
+	.nluns		= 2,
+	.vendor		= "GOOGLE",
+	.product	= "Mass Storage",
+	.release	= 0xFFFF,
+};
+static struct platform_device mass_storage_device = {
+	.name           = "usb_mass_storage",
+	.id             = -1,
+	.dev            = {
+		.platform_data          = &mass_storage_pdata,
+	},
+};
 static struct android_usb_platform_data android_usb_pdata = {
 #ifdef CONFIG_USB_AUTO_INSTALL
 	.vendor_id	= HUAWEI_VID,
@@ -370,7 +381,6 @@ static struct android_usb_platform_data android_usb_pdata = {
 	.product_name	= "Qualcomm HSUSB Device",
 	.manufacturer_name = "Qualcomm Incorporated",
 #endif  /* CONFIG_USB_AUTO_INSTALL */
-	.nluns = 1,
 };
 static struct platform_device android_usb_device = {
 	.name	= "android_usb",
@@ -694,6 +704,7 @@ static struct platform_device android_pmem_kernel_ebi1_device = {
 
 static struct msm_handset_platform_data hs_platform_data = {
 	.hs_name = "7k_handset",
+	.pwr_key_delay_ms = 500, /* 0 will disable end key */
 };
 
 static struct platform_device hs_device = {
@@ -703,6 +714,31 @@ static struct platform_device hs_device = {
 		.platform_data = &hs_platform_data,
 	},
 };
+
+/* TSIF begin */
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+
+#define TSIF_B_SYNC      GPIO_CFG(87, 5, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_DATA      GPIO_CFG(86, 3, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_EN        GPIO_CFG(85, 3, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+#define TSIF_B_CLK       GPIO_CFG(84, 4, GPIO_INPUT, GPIO_PULL_DOWN, GPIO_2MA)
+
+static const struct msm_gpio tsif_gpios[] = {
+	{ .gpio_cfg = TSIF_B_CLK,  .label =  "tsif_clk", },
+	{ .gpio_cfg = TSIF_B_EN,   .label =  "tsif_en", },
+	{ .gpio_cfg = TSIF_B_DATA, .label =  "tsif_data", },
+	{ .gpio_cfg = TSIF_B_SYNC, .label =  "tsif_sync", },
+};
+
+static struct msm_tsif_platform_data tsif_platform_data = {
+	.num_gpios = ARRAY_SIZE(tsif_gpios),
+	.gpios = tsif_gpios,
+	.tsif_clk = "tsif_clk",
+	.tsif_pclk = "tsif_pclk",
+	.tsif_ref_clk = "tsif_ref_clk",
+};
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 #define LCDC_CONFIG_PROC          21
 #define LCDC_UN_CONFIG_PROC       22
@@ -987,8 +1023,8 @@ static int msm_fb_detect_panel(const char *name)
 }
 
 static struct msm_fb_platform_data msm_fb_pdata = {
-    .detect_client = msm_fb_detect_panel,
-    .mddi_prescan = 1,
+	.detect_client = msm_fb_detect_panel,
+	.mddi_prescan = 1,
 };
 
 static struct platform_device msm_fb_device = {
@@ -2276,6 +2312,17 @@ static struct platform_device msm_batt_device = {
 };
 
 
+static struct platform_device *early_devices[] __initdata = {
+#ifdef CONFIG_GPIOLIB
+	&msm_gpio_devices[0],
+	&msm_gpio_devices[1],
+	&msm_gpio_devices[2],
+	&msm_gpio_devices[3],
+	&msm_gpio_devices[4],
+	&msm_gpio_devices[5],
+#endif
+};
+
 static struct platform_device msm_wlan_ar6000 = {
 	.name		= "wlan_ar6000",
 	.id		= 1,
@@ -2320,6 +2367,7 @@ static struct platform_device *devices[] __initdata = {
 #endif
 
 #ifdef CONFIG_USB_ANDROID
+	&mass_storage_device,
 	&android_usb_device,
 #endif
 	&msm_device_i2c,
@@ -2424,7 +2472,7 @@ static void __init msm7x2x_init_irq(void)
 
 static struct msm_acpu_clock_platform_data msm7x2x_clock_data = {
 	.acpu_switch_time_us = 50,
-	.max_speed_delta_khz = 256000,
+	.max_speed_delta_khz = 400000,
 	.vdd_switch_time_us = 62,
 	.max_axi_khz = 160000,
 };
@@ -2598,6 +2646,9 @@ static struct mmc_platform_data msm7x2x_sdcc_data = {
 	.msmsdcc_fmid	= 24576000,
 	.msmsdcc_fmax	= 49152000,
 	.nonremovable	= 1,
+#ifdef CONFIG_MMC_MSM_SDC1_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
 };
 
 #ifdef CONFIG_HUAWEI_WIFI_SDCC 
@@ -2622,6 +2673,9 @@ static struct mmc_platform_data msm7x2x_sdcc_data_wifi = {
 	.msmsdcc_fmid	= 24576000,
 	.msmsdcc_fmax	= 49152000,
 	.nonremovable	= 0,
+#ifdef CONFIG_MMC_MSM_SDC2_DUMMY52_REQUIRED
+	.dummy52_required = 1,
+#endif
 };
 #endif 
 
@@ -3339,6 +3393,8 @@ static void __init msm7x2x_init(void)
 	msm_serial_debug_init(MSM_UART3_PHYS, INT_UART3,
 			&msm_device_uart3.dev, 1);
 #endif
+
+#if defined(CONFIG_SMC91X)
 	if (machine_is_msm7x25_ffa() || machine_is_msm7x27_ffa()) {
 		smc91x_resources[0].start = 0x98000300;
 		smc91x_resources[0].end = 0x980003ff;
@@ -3354,6 +3410,7 @@ static void __init msm7x2x_init(void)
 				__func__);
 		}
 	}
+#endif
 
 	if (cpu_is_msm7x27())
 		msm7x2x_clock_data.max_axi_khz = 200000;
@@ -3410,6 +3467,9 @@ static void __init msm7x2x_init(void)
 		[MSM_PM_SLEEP_MODE_RAMP_DOWN_AND_WAIT_FOR_INTERRUPT].latency;
 	msm_device_gadget_peripheral.dev.platform_data = &msm_gadget_pdata;
 #endif
+#endif
+#if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
+	msm_device_tsif.dev.platform_data = &tsif_platform_data;
 #endif
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));

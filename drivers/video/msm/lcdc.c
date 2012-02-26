@@ -116,8 +116,7 @@ static int lcdc_on(struct platform_device *pdev)
 #ifdef CONFIG_MSM_NPA_SYSTEM_BUS
 	pm_qos_rate = MSM_AXI_FLOW_MDP_LCDC_WVGA_2BPP;
 #else
-	/* delete 58MHz */
-	if (panel_pixclock_freq > 65000000)	/* 65MHz */
+	if (panel_pixclock_freq > 65000000)
 		/* pm_qos_rate should be in Khz */
 		pm_qos_rate = panel_pixclock_freq / 1000 ;
 	else
@@ -229,14 +228,10 @@ static int lcdc_probe(struct platform_device *pdev)
 	 */
 	mfd->panel_info = pdata->panel_info;
 
-#ifdef MSMFB_FRAMEBUF_32
 	if (mfd->index == 0)
-		mfd->fb_imgType = MDP_RGBA_8888; /* primary */
+		mfd->fb_imgType = MSMFB_DEFAULT_TYPE;
 	else
-		mfd->fb_imgType = MDP_RGB_565;	/* secondary */
-#else
-	mfd->fb_imgType = MDP_RGB_565;
-#endif
+		mfd->fb_imgType = MDP_RGB_565;
 
 	fbi = mfd->fbi;
 	fbi->var.pixclock = clk_round_rate(pixel_mdp_clk,

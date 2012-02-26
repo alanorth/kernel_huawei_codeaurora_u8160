@@ -55,6 +55,9 @@ include/linux/utsrelease.h
 include/linux/bounds.h
 include/generated
 
+# other
+arch/arm/mach-msm/smd_rpc_sym.c
+
 # stgit generated dirs
 patches-*
 

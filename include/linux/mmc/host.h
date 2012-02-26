@@ -14,6 +14,7 @@
 #include <linux/sched.h>
 
 #include <linux/mmc/core.h>
+#include <linux/mmc/pm.h>
 
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
@@ -153,6 +154,8 @@ struct mmc_host {
 #define MMC_CAP_NONREMOVABLE	(1 << 8)	/* Nonremovable e.g. eMMC */
 #define MMC_CAP_WAIT_WHILE_BUSY	(1 << 9)	/* Waits while card is busy */
 
+	mmc_pm_flag_t		pm_caps;	/* supported pm features */
+
 	/* host specific block data */
 	unsigned int		max_seg_size;	/* see blk_queue_max_segment_size */
 	unsigned short		max_hw_segs;	/* see blk_queue_max_hw_segments */
@@ -202,6 +205,8 @@ struct mmc_host {
 	struct task_struct	*sdio_irq_thread;
 	atomic_t		sdio_irq_thread_abort;
 
+	mmc_pm_flag_t		pm_flags;	/* requested pm features */
+
 #ifdef CONFIG_LEDS_TRIGGERS
 	struct led_trigger	*led;		/* activity led */
 #endif
@@ -217,6 +222,20 @@ struct mmc_host {
 	} embedded_sdio_data;
 #endif
 
+#ifdef CONFIG_MMC_PERF_PROFILING
+	struct {
+
+		unsigned long rbytes_mmcq; /* Rd bytes MMC queue */
+		unsigned long wbytes_mmcq; /* Wr bytes MMC queue */
+		unsigned long rbytes_drv;  /* Rd bytes MMC Host  */
+		unsigned long wbytes_drv;  /* Wr bytes MMC Host  */
+		ktime_t rtime_mmcq;	   /* Rd time  MMC queue */
+		ktime_t wtime_mmcq;	   /* Wr time  MMC queue */
+		ktime_t rtime_drv;	   /* Rd time  MMC Host  */
+		ktime_t wtime_drv;	   /* Wr time  MMC Host  */
+		ktime_t start;
+	} perf;
+#endif
 	unsigned long		private[0] ____cacheline_aligned;
 };
 

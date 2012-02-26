@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/rpc_server_time_remote.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2010 Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2011 Code Aurora Forum. All rights reserved.
  * Author: Iliyan Malchev <ibm@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -21,8 +21,8 @@
 #include <mach/msm_rpcrouter.h>
 #include "rpc_server_time_remote.h"
 #include <linux/rtc.h>
-#include <linux/time.h>
-#include <linux/unistd.h>
+#include <linux/android_alarm.h>
+#include <linux/rtc-msm.h>
 /* time_remote_mtoa server definitions. */
 
 #define TIME_REMOTE_MTOA_PROG 0x3000005d
@@ -42,24 +42,15 @@ static int read_rtc0_time(struct msm_rpc_server *server,
 		   struct rpc_request_hdr *req,
 		   unsigned len)
 {
-	extern struct timezone sys_tz;
 	int err;
-	unsigned long tm_sec, tm_temp;
+	unsigned long tm_sec;
 	uint32_t size = 0;
 	void *reply;
 	uint32_t output_valid;
 	uint32_t rpc_status = RPC_ACCEPTSTAT_SYSTEM_ERR;
 	struct rtc_time tm;
 	struct rtc_device *rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
-	struct rtc_time temp;
 
-	temp.tm_sec = 0;
-	temp.tm_min = 0;
-	temp.tm_hour = 0;
-	temp.tm_mday = 6;
-	temp.tm_mon = 1;
-	temp.tm_year = 80;
-	         
 	if (rtc == NULL) {
 		pr_err("%s: unable to open rtc device (%s)\n",
 			__FILE__, CONFIG_RTC_HCTOSYS_DEVICE);
@@ -81,24 +72,6 @@ static int read_rtc0_time(struct msm_rpc_server *server,
 	}
 
 	rtc_tm_to_time(&tm, &tm_sec);
-	rtc_tm_to_time(&temp, &tm_temp);
-	printk(KERN_ERR "rpc in %s: %d  %d \n",__func__, tm_sec, tm_temp);
-	tm_sec -= tm_temp;
-	
-	temp.tm_sec = 0;
-	temp.tm_min = 0;
-	temp.tm_hour = 0;
-	temp.tm_mday = 1;
-	temp.tm_mon = 1;
-	temp.tm_year = 70;
-	
-	rtc_tm_to_time(&temp, &tm_temp);
-	tm_sec += tm_temp;
-	
-	tm_sec -= (sys_tz.tz_minuteswest * 60);
-	
-	printk(KERN_ERR "rpc in %s: %d  %d %d\n",__func__, tm_sec, tm_temp, sys_tz.tz_minuteswest);
-	
 	rpc_status = RPC_ACCEPTSTAT_SUCCESS;
 
 close_dev:
@@ -127,6 +100,8 @@ send_reply:
 static int handle_rpc_call(struct msm_rpc_server *server,
 			   struct rpc_request_hdr *req, unsigned len)
 {
+	struct timespec ts, tv;
+
 	switch (req->procedure) {
 	case RPC_TIME_REMOTE_MTOA_NULL:
 		return 0;
@@ -140,7 +115,33 @@ static int handle_rpc_call(struct msm_rpc_server *server,
 		       "\ttick = %d\n"
 		       "\tstamp = %lld\n",
 		       args->tick, args->stamp);
+
+		getnstimeofday(&ts);
+		if (msmrtc_is_suspended()) {
+			int64_t now, sleep, tick_at_suspend, sclk_max;
+
+			now = msm_timer_get_sclk_time(&sclk_max);
+			tick_at_suspend = msmrtc_get_tickatsuspend();
+
+			if (now && tick_at_suspend) {
+				if (now < tick_at_suspend) {
+					sleep = sclk_max - tick_at_suspend +
+									now;
+				} else {
+					sleep = now - tick_at_suspend;
+				}
+
+				timespec_add_ns(&ts, sleep);
+				msmrtc_set_tickatsuspend(now);
+			} else
+				pr_err("%s: Invalid ticks from SCLK"
+					"now=%lld tick_at_suspend=%lld",
+					__func__, now, tick_at_suspend);
+		}
 		rtc_hctosys();
+		getnstimeofday(&tv);
+		/* Update the alarm information with the new time info. */
+		alarm_update_timedelta(ts, tv);
 		return 0;
 	}
 
