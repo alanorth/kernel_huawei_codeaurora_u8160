@@ -2017,6 +2017,7 @@ msmsdcc_suspend(struct platform_device *dev, pm_message_t state)
 				enable_irq_wake(host->plat->sdiowakeup_irq);
 				enable_irq(host->plat->sdiowakeup_irq);
 			}
+			spin_unlock_irqrestore(&host->lock, flags);
 		}
 
 		host->sdcc_suspending = 0;
